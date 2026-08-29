@@ -30,15 +30,15 @@ GEMELA_COST = 2.0       # coste de una gemela (1 pareja)
 COMBINADA = 3           # caballos en la combinada de gemela -> C(3,2)=3 parejas = 6 EUR
 TRIPLE_UNIT = 0.30      # coste por combinacion del boleto de triple gemela
 GEMELAS_MARCADAS = 3    # gemelas marcadas por serie en la triple gemela
-DECAY = 0.6             # peso por dia de antiguedad
+DECAY = 0.5             # peso por dia de antiguedad
 LEVEL_BONUS = 1.0       # peso extra si el historial es del mismo nivel (CSI4*, etc.)
 W_COMBO, W_RIDER, W_HORSE = 0.4, 0.2, 0.4   # mezcla binomio / jinete / caballo
-K_SMOOTH = 0.5          # suavizado bayesiano hacia el prior (nº obs. equivalentes)
+K_SMOOTH = 1.0          # suavizado bayesiano hacia el prior (nº obs. equivalentes)
 W_CLEAR = 0.5           # peso del componente "cero faltas" en el rendimiento
-W_TIME = 0.2            # peso del percentil de tiempo (menos tiempo = mejor)
-H_DECAY = 0.3           # penalizacion por diferencia de altura (por cada 5 cm)
+W_TIME = 0.0            # peso del percentil de tiempo (no mejoro la combinada; en 0)
+H_DECAY = 1.0           # penalizacion por diferencia de altura (1.0 = desactivada)
 PRIOR = 0.5             # puntuacion para binomios sin ningun historial
-CONF_MIN = 0.025        # diferencia top1-top2 para considerar serie "fiable" (apostar)
+CONF_MIN = 0.04         # diferencia top1-top2 para considerar serie "fiable" (apostar)
 
 
 def level_of(name):
@@ -409,11 +409,12 @@ def render(classes, rows, triples, model):
                      f"<th>{hg3}/{nh} ({100*hg3/nh:.0f}%)</th><th>&mdash;</th></tr>")
     p.append("</table>")
     p.append("<div class='triple'><b>&#128176; Estrategia de banca</b>: con series de 10 caballos, "
-             "la fuerza del modelo est&aacute; en la <b>combinada de 3</b> (6&euro;): ~19% frente al 6,7% "
-             "del azar (x3), y la gemela simple ~15% frente al 2,2% (x7). El ganador de serie a pelo es "
-             "poco fiable (1 entre 10). Recomendaci&oacute;n: jugar gemela/combinada en las series "
-             f"&#11088; FIABLES (confianza &ge; {CONF_MIN}) y evitar el resto, salvo la triple gemela que "
-             "obliga a marcar las 3 series. Backtest corto (27 series): tomar los porcentajes con cautela.</div>")
+             "la fuerza del modelo est&aacute; en la <b>combinada de 3 en series &#11088; FIABLES</b> "
+             f"(confianza &ge; {CONF_MIN}): 3 de 6 aciertos (50%) en el backtest. En todas las series "
+             "la combinada ronda el 19% (x3 el azar) y la gemela simple ~15% (x7). El ganador de serie "
+             "a pelo es poco fiable (1 entre 10). Recomendaci&oacute;n: apostar solo en las series "
+             "&#11088; y evitar el resto, salvo la triple gemela que obliga a marcar las 3 series. "
+             "Backtest corto (27 series): tomar los porcentajes con cautela.</div>")
 
     p.append("<h3>Triple gemela (3 &uacute;ltimas series de la &uacute;ltima prueba de cada d&iacute;a, "
              f"{GEMELAS_MARCADAS} gemelas marcadas por serie)</h3><table>"

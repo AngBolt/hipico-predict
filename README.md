@@ -58,20 +58,20 @@ smooth(H) = (K_SMOOTH·PRIOR + Σ peso·perf) / (K_SMOOTH + Σ peso)
 score = W_COMBO·smooth(jinete+caballo) + W_RIDER·smooth(jinete) + W_HORSE·smooth(caballo)
 ```
 
-Parámetros actuales (v3, grid search causal mié→vie + validación por día):
+Parámetros actuales (v4, grid search causal mié→vie optimizando la combinada de 3 en series FIABLES):
 
 | Parámetro | Valor | Significado |
 |---|---|---|
-| `DECAY` | 0.6 | lo reciente pesa más (por día) |
+| `DECAY` | 0.5 | lo reciente pesa más (por día) |
 | `LEVEL_BONUS` | 1.0 | sin bonus por nivel (no mejoró) |
-| `H_DECAY` | 0.3 | historial a altura similar pesa mucho más (×0.3 por cada 5 cm de diferencia) |
+| `H_DECAY` | 1.0 | similitud de altura desactivada (no mejoró la combinada) |
 | `W_COMBO / W_RIDER / W_HORSE` | 0.4 / 0.2 / 0.4 | binomio y caballo a partes iguales |
-| `K_SMOOTH` | 0.5 | ½ observación "ficticia" en el prior |
+| `K_SMOOTH` | 1.0 | 1 observación "ficticia" en el prior |
 | `PRIOR` | 0.5 | binomio desconocido = mediocre, ni bueno ni malo |
-| `W_CLEAR` | 0.5 | el cero-faltas pesa tanto como el resto |
-| `W_TIME` | 0.2 | percentil de tiempo (velocidad) |
+| `W_CLEAR` | 0.5 | el cero-faltas pesa tanto como el percentil |
+| `W_TIME` | 0.0 | percentil de tiempo desactivado (no mejoró la combinada) |
 | `SERIE_SIZE / MAX_SERIES` | 10 / 4 | estructura oficial de las series |
-| `CONF_MIN` | 0.025 | umbral de confianza para apostar |
+| `CONF_MIN` | 0.04 | umbral de confianza para apostar (más selectivo) |
 
 ### 4. Predicciones
 - **Series**: bloques oficiales de 10 (ver 1b).
@@ -84,13 +84,15 @@ Parámetros actuales (v3, grid search causal mié→vie + validación por día):
 
 Con series de 10 caballos el azar es duro (ganador 10 %, gemela 2,2 %, combinada de 3 = 6,7 %).
 Backtest mié→vie (27 series evaluadas, muestra pequeña):
-- **Combinada de 3: ~19 % (×3 el azar)** ← la apuesta principal. Es el techo del dataset actual:
-  el grid search completo (miles de configs) no encuentra ninguna combinación de parámetros que
-  supere 5/27; para mejorar hace falta información externa (ranking FEI, payouts).
+- **Combinada de 3 en series ⭐ FIABLES (conf ≥ 0.04): 3/6 = 50 %** ← la apuesta principal.
+  El umbral alto marca pocas series pero acierta la mitad.
+- Combinada de 3 en todas las series: 5/27 ≈ 19 % (×3 el azar) — techo del dataset: el grid
+  search completo no encuentra ninguna config que supere 5/27; para más hace falta información
+  externa (ranking FEI, payouts).
 - Gemela simple: ~15 % (×7 el azar, volátil).
 - Ganador de serie: sin ventaja clara.
 
-**Regla**: jugar gemela/combinada de 3 solo en series FIABLES (`confianza ≥ 0.025`, marcadas ⭐),
+**Regla**: jugar gemela/combinada de 3 solo en series FIABLES (`confianza ≥ 0.04`, marcadas ⭐),
 evitar series igualadas; la triple gemela obliga a marcar las 3 series del final.
 
 ### 6. Resultados del backtest (semana Gijón 2026)
