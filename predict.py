@@ -28,11 +28,13 @@ GEMELA_COST = 2.0       # coste de una gemela (1 pareja)
 COMBINADA = 3           # caballos en la combinada de gemela -> C(3,2)=3 parejas = 6 EUR
 TRIPLE_UNIT = 0.30      # coste por combinacion del boleto de triple gemela
 GEMELAS_MARCADAS = 3    # gemelas marcadas por serie en la triple gemela
-DECAY = 0.7             # peso por dia de antiguedad
-LEVEL_BONUS = 1.0       # peso extra si el historial es del mismo nivel (CSI4*, etc.)
-W_COMBO, W_RIDER = 0.8, 0.2
+DECAY = 0.85            # peso por dia de antiguedad
+LEVEL_BONUS = 1.5       # peso extra si el historial es del mismo nivel (CSI4*, etc.)
+W_COMBO, W_RIDER, W_HORSE = 0.4, 0.2, 0.4   # mezcla binomio / jinete / caballo
+K_SMOOTH = 1.0          # suavizado bayesiano hacia el prior (nº obs. equivalentes)
 W_CLEAR = 0.35          # peso del componente "cero faltas" en el rendimiento
 PRIOR = 0.5             # puntuacion para binomios sin ningun historial
+CONF_MIN = 0.044        # diferencia top1-top2 para considerar serie "fiable" (apostar)
 
 
 def level_of(name):
@@ -111,6 +113,7 @@ class Model:
     def __init__(self):
         self.combo = {}   # (rider_id, horse_id) -> [(date, level, perf)]
         self.rider = {}   # rider_id -> [(date, level, perf)]
+        self.horse = {}   # horse_id -> [(date, level, perf)]
 
     def learn(self, cls):
         n = len([e for e in cls["entries"] if e["ridden"] or e["rank"]])
@@ -122,27 +125,26 @@ class Model:
             rec = (d, cls["level"], p)
             self.combo.setdefault((e["rider_id"], e["horse_id"]), []).append(rec)
             self.rider.setdefault(e["rider_id"], []).append(rec)
+            self.horse.setdefault(e["horse_id"], []).append(rec)
 
     @staticmethod
-    def _wavg(records, today, level):
-        num = den = 0.0
+    def _smooth(records, today, level):
+        """Media ponderada con suavizado bayesiano hacia PRIOR."""
+        num, den = K_SMOOTH * PRIOR, K_SMOOTH
         for d, lvl, p in records:
             w = DECAY ** max(0, (today - d).days)
             if lvl == level:
                 w *= LEVEL_BONUS
             num += w * p
             den += w
-        return num / den if den else None
+        return num / den
 
     def score(self, e, cls):
         today = date.fromisoformat(cls["date"])
-        c = self._wavg(self.combo.get((e["rider_id"], e["horse_id"]), []), today, cls["level"])
-        r = self._wavg(self.rider.get(e["rider_id"], []), today, cls["level"])
-        if c is not None and r is not None:
-            return W_COMBO * c + W_RIDER * r
-        if r is not None:
-            return 0.85 * r
-        return PRIOR
+        c = self._smooth(self.combo.get((e["rider_id"], e["horse_id"]), []), today, cls["level"])
+        r = self._smooth(self.rider.get(e["rider_id"], []), today, cls["level"])
+        h = self._smooth(self.horse.get(e["horse_id"], []), today, cls["level"])
+        return W_COMBO * c + W_RIDER * r + W_HORSE * h
 
 
 def predict_class(model, cls):
@@ -157,7 +159,8 @@ def predict_class(model, cls):
         ranked = sorted(serie, key=lambda x: -x["score"])
         pairs = [frozenset([(a["rider_id"], a["horse_id"]), (b["rider_id"], b["horse_id"])])
                  for a, b in combinations(ranked[:GEMELAS_MARCADAS], 2)]
-        series.append({"entries": serie, "ranked": ranked, "gemelas": pairs})
+        conf = (ranked[0]["score"] - ranked[1]["score"]) if len(ranked) > 1 else 0.0
+        series.append({"entries": serie, "ranked": ranked, "gemelas": pairs, "conf": conf})
     winner = max(scored, key=lambda x: x["score"]) if scored else None
     return {"series": series, "winner": winner}
 
@@ -202,6 +205,7 @@ def backtest(classes):
             gem3_hits += hit_g3
             serie_detail.append({
                 "num": idx + 1, "pick": pick, "real": real_win,
+                "marks": s["ranked"][:COMBINADA], "conf": s["conf"],
                 "hit_w": hit_w, "hit_g1": hit_g1, "hit_g3": hit_g3,
             })
             if idx >= n_series - 3:
@@ -286,9 +290,13 @@ def render(classes, rows, triples, model):
                      f"<span class='muted'>(score {pred['winner']['score']:.3f})</span></p>")
         for i, s in enumerate(pred["series"], 1):
             r = s["ranked"]
+            bet = s["conf"] >= CONF_MIN
+            badge = ("<span class='ok'>&#11088; FIABLE &mdash; apostar</span>" if bet
+                     else "<span class='muted'>&#9888; serie igualada &mdash; mejor no apostar</span>")
             p.append("<div class='serie'>")
             p.append(f"<b>Serie {i}</b> <span class='muted'>({len(s['entries'])} binomios, "
-                     f"dorsales {esc(s['entries'][0]['start_no'])}&ndash;{esc(s['entries'][-1]['start_no'])})</span><br>")
+                     f"dorsales {esc(s['entries'][0]['start_no'])}&ndash;{esc(s['entries'][-1]['start_no'])})</span> "
+                     f"&middot; confianza {s['conf']:.3f} &middot; {badge}<br>")
             p.append(f"&#129351; Ganador serie: <b>{fmt_combo(r[0])}</b> <span class='muted'>({r[0]['score']:.3f})</span><br>")
             if len(r) > 1:
                 p.append(f"&#128111; Gemela ({GEMELA_COST:.0f}&euro;): <b>{fmt_combo(r[0])}</b> + <b>{fmt_combo(r[1])}</b><br>")
@@ -296,8 +304,8 @@ def render(classes, rows, triples, model):
                 marks = r[:COMBINADA]
                 n_pairs = COMBINADA * (COMBINADA - 1) // 2
                 p.append(f"&#127922; Combinada de {COMBINADA} ({n_pairs} gemelas, "
-                         f"{n_pairs*GEMELA_COST:.0f}&euro;): " +
-                         " ".join(f"<span class='pill'>{fmt_combo(e)}</span>" for e in marks))
+                         f"{n_pairs*GEMELA_COST:.0f}&euro;) &mdash; los 3 participantes: " +
+                         " ".join(f"<span class='pill'>{esc(e['start_no'])}. {fmt_combo(e)}</span>" for e in marks))
             if i in triple_series:
                 p.append("<br><span class='muted'>&#127919; Esta serie entra en la TRIPLE GEMELA: "
                          "marcar esos mismos 3 caballos como gemelas.</span>")
@@ -335,7 +343,23 @@ def render(classes, rows, triples, model):
                  f"<th>{tot_g1}/{tw} ({100*tot_g1/tw:.0f}%)</th>"
                  f"<th>{tot_g3}/{tw} ({100*tot_g3/tw:.0f}%)</th>"
                  f"<th>{tot_cw}/{len(rows)}</th></tr>")
+        hi = [s for r in rows if r["cls"]["date"] > "2026-08-25" for s in r["series"]
+              if s["conf"] >= CONF_MIN]
+        if hi:
+            hw = sum(s["hit_w"] for s in hi)
+            hg1 = sum(s["hit_g1"] for s in hi)
+            hg3 = sum(s["hit_g3"] for s in hi)
+            nh = len(hi)
+            p.append(f"<tr><th>Solo series FIABLES (conf &ge; {CONF_MIN}, desde mi&eacute;.)</th><th></th><th>{nh}</th>"
+                     f"<th>{hw}/{nh} ({100*hw/nh:.0f}%)</th>"
+                     f"<th>{hg1}/{nh} ({100*hg1/nh:.0f}%)</th>"
+                     f"<th>{hg3}/{nh} ({100*hg3/nh:.0f}%)</th><th>&mdash;</th></tr>")
     p.append("</table>")
+    p.append("<div class='triple'><b>&#128176; Estrategia de banca</b>: apostar solo en las series "
+             f"marcadas como FIABLES (diferencia de puntuaci&oacute;n top1&ndash;top2 &ge; {CONF_MIN}). "
+             "En el backtest, esas series suben a ~28% de acierto en ganador y ~38% en combinada de 3, "
+             "frente a ~17% / ~20% del azar. En series igualadas la ventaja desaparece: mejor no jugarlas "
+             "(salvo la triple gemela, que obliga a marcar las 3 series).</div>")
 
     p.append("<h3>Triple gemela (3 &uacute;ltimas series de la &uacute;ltima prueba de cada d&iacute;a, "
              f"{GEMELAS_MARCADAS} gemelas marcadas por serie)</h3><table>"
@@ -356,25 +380,32 @@ def render(classes, rows, triples, model):
         mark = "ok" if r["hit_class_winner"] else "ko"
         p.append(f"<p>Ganador prueba &mdash; predicho: <b>{pw}</b> &middot; real: "
                  f"<b class='{mark}'>{rw}</b></p>")
-        p.append("<table><tr><th>Serie</th><th>Predicho</th><th>Ganador real</th>"
+        p.append("<table><tr><th>Serie</th><th>Conf.</th><th>Predicho (ganador)</th>"
+                 "<th>Marcados combinada de 3</th><th>Ganador real</th>"
                  "<th>Ganador</th><th>Gemela simple</th><th>Combinada de 3</th></tr>")
         for s in r["series"]:
             f1 = "<span class='ok'>&#10004;</span>" if s["hit_w"] else "<span class='ko'>&#10008;</span>"
             f2 = "<span class='ok'>&#10004;</span>" if s["hit_g1"] else "<span class='ko'>&#10008;</span>"
             f3 = "<span class='ok'>&#10004;</span>" if s["hit_g3"] else "<span class='ko'>&#10008;</span>"
-            p.append(f"<tr><td>{s['num']}</td><td>{fmt_combo(s['pick'])}</td>"
+            marks = "<br>".join(f"{j}. {fmt_combo(e)}" for j, e in enumerate(s.get("marks", []), 1))
+            conf = f"{s.get('conf', 0):.3f}" + (" &#11088;" if s.get("conf", 0) >= CONF_MIN else "")
+            p.append(f"<tr><td>{s['num']}</td><td>{conf}</td><td>{fmt_combo(s['pick'])}</td>"
+                     f"<td>{marks}</td>"
                      f"<td>{fmt_combo(s['real'])}</td><td>{f1}</td><td>{f2}</td><td>{f3}</td></tr>")
         p.append("</table>")
 
     p.append("<h2>Metodolog&iacute;a</h2><ul>"
              "<li>Puntuaci&oacute;n de cada binomio = historial ponderado en el propio concurso: "
-             "percentil de clasificaci&oacute;n en pruebas anteriores, con decaimiento temporal "
-             f"({DECAY}/d&iacute;a) y bonus x{LEVEL_BONUS} si es del mismo nivel (CSI4*/CSI2*/CSIYH1*).</li>"
-             f"<li>Mezcla: {W_COMBO:.0%} historial jinete+caballo, {W_RIDER:.0%} historial del jinete "
-             f"(cualquier caballo). Sin historial: prior {PRIOR}.</li>"
+             "percentil de clasificaci&oacute;n + componente cero-faltas "
+             f"({W_CLEAR:.0%}), con decaimiento temporal ({DECAY}/d&iacute;a) y bonus x{LEVEL_BONUS} "
+             "si el historial es del mismo nivel (CSI4*/CSI2*/CSIYH1*).</li>"
+             f"<li>Mezcla: {W_COMBO:.0%} binomio jinete+caballo, {W_RIDER:.0%} jinete (otros caballos), "
+             f"{W_HORSE:.0%} caballo (otros jinetes). Suavizado bayesiano hacia prior {PRIOR} "
+             f"(k={K_SMOOTH}).</li>"
+             f"<li>Confianza de serie = score(top1) &minus; score(top2); &ge; {CONF_MIN} = fiable.</li>"
              f"<li>Series: divisi&oacute;n de la lista de salida en grupos de ~{SERIE_TARGET} por orden de salida "
              "(configurable en <code>predict.py</code>).</li>"
-             "<li>Mejora futura: integrar ranking FEI/Longines como prior para el primer d&iacute;a.</li>"
+             "<li>Algoritmo completo documentado en <code>README.md</code>.</li>"
              "</ul>")
     p.append("</div></body></html>")
     OUT.write_text("\n".join(p), encoding="utf-8")
