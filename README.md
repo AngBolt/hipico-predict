@@ -9,6 +9,7 @@ Predictor de apuestas para el **Concurso Hípico Internacional de Gijón (Las Me
 | **Ganador de serie** | El mejor binomio de cada serie (10 caballos consecutivos por orden de salida; máx. 4 series, solo CSI4*/CSI2*) | — |
 | **Gemela** | Los 2 mejores de la serie, sin importar el orden (1 pareja) | 2 € |
 | **Combinada de 3** | 3 caballos combinados entre sí = 3 gemelas | 6 € |
+| **Combinada de 4** | 4 caballos combinados entre sí = 6 gemelas (la más fiable del modelo) | 12 € |
 | **Ganador de la prueba** | El mejor de toda la prueba | — |
 | **Triple gemela** | Solo en las **3 últimas series de la última prueba del día**: acertar la gemela de las 3. Puedes marcar varias gemelas por serie y el coste se multiplica: 3×3×3 = 27 combinaciones × 0,30 € = 8,10 € | 0,30 €/comb. |
 
@@ -43,7 +44,8 @@ Para cada binomio en cada prueba ya disputada con `n` participantes:
 ```
 percentil = 1 − (rank − 1) / (n − 1)        # 1 = ganó, 0 = último
 clear     = 1 si terminó con 0 faltas totales (saltos + tiempo), si no 0
-perf      = (1 − W_CLEAR) · percentil + W_CLEAR · clear      # W_CLEAR = 0.35
+time_pct  = percentil de tiempo entre los clasificados (menos tiempo = 1)
+perf      = (1 − W_CLEAR − W_TIME) · percentil + W_CLEAR · clear + W_TIME · time_pct
 ```
 Eliminados / no clasificados → `perf = 0`.
 
@@ -51,41 +53,44 @@ Eliminados / no clasificados → `perf = 0`.
 Tres historiales, cada uno con media ponderada y **suavizado bayesiano** hacia el prior:
 
 ```
-peso(obs) = DECAY^(días de antigüedad) · (LEVEL_BONUS si mismo nivel CSI4*/CSI2*/CSIYH1*)
+peso(obs) = DECAY^(días) · (LEVEL_BONUS si mismo nivel) · H_DECAY^(|Δaltura|/5cm)
 smooth(H) = (K_SMOOTH·PRIOR + Σ peso·perf) / (K_SMOOTH + Σ peso)
 
 score = W_COMBO·smooth(jinete+caballo) + W_RIDER·smooth(jinete) + W_HORSE·smooth(caballo)
 ```
 
-Parámetros actuales (ajustados por grid search sobre el backtest mié→vie):
+Parámetros actuales (v3, grid search causal mié→vie + validación por día):
 
 | Parámetro | Valor | Significado |
 |---|---|---|
 | `DECAY` | 0.6 | lo reciente pesa más (por día) |
 | `LEVEL_BONUS` | 1.0 | sin bonus por nivel (no mejoró) |
-| `W_COMBO / W_RIDER / W_HORSE` | 0.4 / 0.1 / 0.5 | el caballo es lo que más pesa |
+| `H_DECAY` | 0.3 | historial a altura similar pesa mucho más (×0.3 por cada 5 cm de diferencia) |
+| `W_COMBO / W_RIDER / W_HORSE` | 0.4 / 0.2 / 0.4 | binomio y caballo a partes iguales |
 | `K_SMOOTH` | 0.5 | ½ observación "ficticia" en el prior |
 | `PRIOR` | 0.5 | binomio desconocido = mediocre, ni bueno ni malo |
-| `W_CLEAR` | 0.5 | el cero-faltas pesa tanto como el percentil |
+| `W_CLEAR` | 0.5 | el cero-faltas pesa tanto como el resto |
+| `W_TIME` | 0.2 | percentil de tiempo (velocidad) |
 | `SERIE_SIZE / MAX_SERIES` | 10 / 4 | estructura oficial de las series |
 | `CONF_MIN` | 0.025 | umbral de confianza para apostar |
 
 ### 4. Predicciones
 - **Series**: bloques oficiales de 10 (ver 1b).
-- **Ganador de serie** = mayor `score` de la serie. **Gemela** = top-2. **Combinada de 3** = top-3 (⇒ 3 parejas).
+- **Ganador de serie** = mayor `score` de la serie. **Gemela** = top-2. **Combinada de 3** = top-3 (⇒ 3 parejas, 6 €). **Combinada de 4** = top-4 (⇒ 6 parejas, 12 €) — la más fiable.
 - **Ganador de prueba** = mayor `score` global.
 - **Triple gemela**: en las 3 últimas series de la última prueba con apuestas del día se marcan los top-3 de cada serie (3 gemelas/serie ⇒ 27 combinaciones, 8,10 €).
 
 ### 5. Confianza y estrategia de banca 💰
 `confianza = score(top1) − score(top2)` dentro de la serie.
 
-Con series de 10 caballos el azar es duro (ganador 10 %, gemela 2,2 %, combinada 6,7 %).
+Con series de 10 caballos el azar es duro (ganador 10 %, gemela 2,2 %, comb. 3 = 6,7 %, comb. 4 = 13,3 %).
 Backtest mié→vie (27 series evaluadas, muestra pequeña):
-- **Gemela simple: ~11 % (×5 el azar)** ← aquí está el valor.
-- **Combinada de 3: ~19 % (×3 el azar).**
-- Ganador de serie: ~7 % (sin ventaja clara).
+- **Combinada de 4: ~26 % (×2 el azar) y acertó TODOS los días** ← la apuesta recomendada.
+- **Combinada de 3: ~19 % (×3 el azar)**, pero el viernes falló entera.
+- Gemela simple: ~15 % (×7 el azar, volátil).
+- Ganador de serie: sin ventaja clara.
 
-**Regla**: jugar gemela/combinada solo en series FIABLES (`confianza ≥ 0.025`, marcadas ⭐),
+**Regla**: combinada de 4 (12 €) en series FIABLES (`confianza ≥ 0.025`, marcadas ⭐),
 evitar series igualadas; la triple gemela obliga a marcar las 3 series del final.
 
 ### 6. Resultados del backtest (semana Gijón 2026)
@@ -95,7 +100,8 @@ evitar series igualadas; la triple gemela obliga a marcar las 3 series del final
 ### 7. Ideas para futuras versiones
 - [ ] **Prior FEI/Longines**: ranking mundial del jinete y del caballo como prior del primer día
   (base de datos FEI: https://data.fei.org). Sustituiría el `PRIOR = 0.5` plano.
-- [ ] **Tiempo relativo**: usar el tiempo normalizado dentro de los cero-faltas como señal fina.
+- [x] **Tiempo relativo**: percentil de tiempo entre clasificados (`W_TIME = 0.2`, v3).
+- [x] **Altura de obstáculos**: similitud de altura pondera el historial (`H_DECAY = 0.3`, v3).
 - [ ] **Series oficiales exactas**: confirmar cada día la composición real de las series del
   programa de apuestas (regla actual: bloques de 10 anclados al final, máx. 4; ver 1b).
 - [ ] **Payouts reales**: registrar los dividendos pagados por gemela/triple para optimizar
