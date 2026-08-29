@@ -347,7 +347,7 @@ def render(classes, rows, triples, model):
             p.append("<div class='serie'>")
             p.append(f"<b>Serie {i}</b> <span class='muted'>({len(s['entries'])} binomios, "
                      f"dorsales {esc(s['entries'][0]['start_no'])}&ndash;{esc(s['entries'][-1]['start_no'])})</span> "
-                     f"&middot; confianza {s['conf']:.3f} &middot; {badge}<br>")
+                     f"&middot; confianza {100*s['conf']:.1f}% &middot; {badge}<br>")
             p.append(f"&#129351; Ganador serie: <b>{fmt_combo(r[0])}</b> <span class='muted'>({r[0]['score']:.3f})</span><br>")
             if len(r) > 1:
                 p.append(f"&#128111; Gemela ({GEMELA_COST:.0f}&euro;): <b>{fmt_combo(r[0])}</b> + <b>{fmt_combo(r[1])}</b><br>")
@@ -403,14 +403,14 @@ def render(classes, rows, triples, model):
             hg1 = sum(s["hit_g1"] for s in hi)
             hg3 = sum(s["hit_g3"] for s in hi)
             nh = len(hi)
-            p.append(f"<tr><th>Solo series FIABLES (conf &ge; {CONF_MIN}, desde mi&eacute;.)</th><th></th><th>{nh}</th>"
+            p.append(f"<tr><th>Solo series FIABLES (conf &ge; {100*CONF_MIN:.0f}%, desde mi&eacute;.)</th><th></th><th>{nh}</th>"
                      f"<th>{hw}/{nh} ({100*hw/nh:.0f}%)</th>"
                      f"<th>{hg1}/{nh} ({100*hg1/nh:.0f}%)</th>"
                      f"<th>{hg3}/{nh} ({100*hg3/nh:.0f}%)</th><th>&mdash;</th></tr>")
     p.append("</table>")
     p.append("<div class='triple'><b>&#128176; Estrategia de banca</b>: con series de 10 caballos, "
              "la fuerza del modelo est&aacute; en la <b>combinada de 3 en series &#11088; FIABLES</b> "
-             f"(confianza &ge; {CONF_MIN}): 3 de 6 aciertos (50%) en el backtest. En todas las series "
+             f"(confianza &ge; {100*CONF_MIN:.0f}%): 3 de 6 aciertos (50%) en el backtest. En todas las series "
              "la combinada ronda el 19% (x3 el azar) y la gemela simple ~15% (x7). El ganador de serie "
              "a pelo es poco fiable (1 entre 10). Recomendaci&oacute;n: apostar solo en las series "
              "&#11088; y evitar el resto, salvo la triple gemela que obliga a marcar las 3 series. "
@@ -443,7 +443,7 @@ def render(classes, rows, triples, model):
             f2 = "<span class='ok'>&#10004;</span>" if s["hit_g1"] else "<span class='ko'>&#10008;</span>"
             f3 = "<span class='ok'>&#10004;</span>" if s["hit_g3"] else "<span class='ko'>&#10008;</span>"
             marks = "<br>".join(f"{j}. {fmt_combo(e)}" for j, e in enumerate(s.get("marks", []), 1))
-            conf = f"{s.get('conf', 0):.3f}" + (" &#11088;" if s.get("conf", 0) >= CONF_MIN else "")
+            conf = f"{100*s.get('conf', 0):.1f}%" + (" &#11088;" if s.get("conf", 0) >= CONF_MIN else "")
             p.append(f"<tr><td>{s['num']}</td><td>{conf}</td><td>{fmt_combo(s['pick'])}</td>"
                      f"<td>{marks}</td>"
                      f"<td>{fmt_combo(s['real'])}</td><td>{f1}</td><td>{f2}</td><td>{f3}</td></tr>")
@@ -458,7 +458,8 @@ def render(classes, rows, triples, model):
              f"<li>Mezcla: {W_COMBO:.0%} binomio jinete+caballo, {W_RIDER:.0%} jinete (otros caballos), "
              f"{W_HORSE:.0%} caballo (otros jinetes). Suavizado bayesiano hacia prior {PRIOR} "
              f"(k={K_SMOOTH}).</li>"
-             f"<li>Confianza de serie = score(top1) &minus; score(top2); &ge; {CONF_MIN} = fiable.</li>"
+             f"<li>Confianza de serie = ventaja del favorito sobre el segundo (score(top1) &minus; score(top2), "
+             f"en %); &ge; {100*CONF_MIN:.0f}% = fiable.</li>"
              f"<li>Series: bloques de {SERIE_SIZE} consecutivos por orden de salida, m&aacute;ximo "
              f"{MAX_SERIES} series ancladas al final de la lista; los primeros sobrantes quedan fuera "
              "de apuestas. CSIYH1* sin apuestas (solo aporta historial). "
