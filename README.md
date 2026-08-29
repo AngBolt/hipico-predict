@@ -9,7 +9,6 @@ Predictor de apuestas para el **Concurso Hípico Internacional de Gijón (Las Me
 | **Ganador de serie** | El mejor binomio de cada serie (10 caballos consecutivos por orden de salida; máx. 4 series, solo CSI4*/CSI2*) | — |
 | **Gemela** | Los 2 mejores de la serie, sin importar el orden (1 pareja) | 2 € |
 | **Combinada de 3** | 3 caballos combinados entre sí = 3 gemelas | 6 € |
-| **Combinada de 4** | 4 caballos combinados entre sí = 6 gemelas (la más fiable del modelo) | 12 € |
 | **Ganador de la prueba** | El mejor de toda la prueba | — |
 | **Triple gemela** | Solo en las **3 últimas series de la última prueba del día**: acertar la gemela de las 3. Puedes marcar varias gemelas por serie y el coste se multiplica: 3×3×3 = 27 combinaciones × 0,30 € = 8,10 € | 0,30 €/comb. |
 
@@ -76,21 +75,22 @@ Parámetros actuales (v3, grid search causal mié→vie + validación por día):
 
 ### 4. Predicciones
 - **Series**: bloques oficiales de 10 (ver 1b).
-- **Ganador de serie** = mayor `score` de la serie. **Gemela** = top-2. **Combinada de 3** = top-3 (⇒ 3 parejas, 6 €). **Combinada de 4** = top-4 (⇒ 6 parejas, 12 €) — la más fiable.
+- **Ganador de serie** = mayor `score` de la serie. **Gemela** = top-2. **Combinada de 3** = top-3 (⇒ 3 parejas, 6 €).
 - **Ganador de prueba** = mayor `score` global.
 - **Triple gemela**: en las 3 últimas series de la última prueba con apuestas del día se marcan los top-3 de cada serie (3 gemelas/serie ⇒ 27 combinaciones, 8,10 €).
 
 ### 5. Confianza y estrategia de banca 💰
 `confianza = score(top1) − score(top2)` dentro de la serie.
 
-Con series de 10 caballos el azar es duro (ganador 10 %, gemela 2,2 %, comb. 3 = 6,7 %, comb. 4 = 13,3 %).
+Con series de 10 caballos el azar es duro (ganador 10 %, gemela 2,2 %, combinada de 3 = 6,7 %).
 Backtest mié→vie (27 series evaluadas, muestra pequeña):
-- **Combinada de 4: ~26 % (×2 el azar) y acertó TODOS los días** ← la apuesta recomendada.
-- **Combinada de 3: ~19 % (×3 el azar)**, pero el viernes falló entera.
+- **Combinada de 3: ~19 % (×3 el azar)** ← la apuesta principal. Es el techo del dataset actual:
+  el grid search completo (miles de configs) no encuentra ninguna combinación de parámetros que
+  supere 5/27; para mejorar hace falta información externa (ranking FEI, payouts).
 - Gemela simple: ~15 % (×7 el azar, volátil).
 - Ganador de serie: sin ventaja clara.
 
-**Regla**: combinada de 4 (12 €) en series FIABLES (`confianza ≥ 0.025`, marcadas ⭐),
+**Regla**: jugar gemela/combinada de 3 solo en series FIABLES (`confianza ≥ 0.025`, marcadas ⭐),
 evitar series igualadas; la triple gemela obliga a marcar las 3 series del final.
 
 ### 6. Resultados del backtest (semana Gijón 2026)
