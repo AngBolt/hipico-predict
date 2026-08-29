@@ -23,18 +23,20 @@ from pathlib import Path
 DATA = Path(__file__).parent / "data"
 OUT = Path(__file__).parent / "index.html"
 
-SERIE_TARGET = 6        # tamano objetivo de cada serie
+SERIE_SIZE = 10         # caballos por serie (consecutivos por orden de salida)
+MAX_SERIES = 4          # maximo de series con apuestas por prueba
+BET_LEVELS = {"CSI4*", "CSI2*"}   # los CSIYH1* (caballos jovenes) no tienen apuestas
 GEMELA_COST = 2.0       # coste de una gemela (1 pareja)
 COMBINADA = 3           # caballos en la combinada de gemela -> C(3,2)=3 parejas = 6 EUR
 TRIPLE_UNIT = 0.30      # coste por combinacion del boleto de triple gemela
 GEMELAS_MARCADAS = 3    # gemelas marcadas por serie en la triple gemela
-DECAY = 0.85            # peso por dia de antiguedad
-LEVEL_BONUS = 1.5       # peso extra si el historial es del mismo nivel (CSI4*, etc.)
-W_COMBO, W_RIDER, W_HORSE = 0.4, 0.2, 0.4   # mezcla binomio / jinete / caballo
-K_SMOOTH = 1.0          # suavizado bayesiano hacia el prior (nº obs. equivalentes)
-W_CLEAR = 0.35          # peso del componente "cero faltas" en el rendimiento
+DECAY = 0.6             # peso por dia de antiguedad
+LEVEL_BONUS = 1.0       # peso extra si el historial es del mismo nivel (CSI4*, etc.)
+W_COMBO, W_RIDER, W_HORSE = 0.4, 0.1, 0.5   # mezcla binomio / jinete / caballo
+K_SMOOTH = 0.5          # suavizado bayesiano hacia el prior (nº obs. equivalentes)
+W_CLEAR = 0.5           # peso del componente "cero faltas" en el rendimiento
 PRIOR = 0.5             # puntuacion para binomios sin ningun historial
-CONF_MIN = 0.044        # diferencia top1-top2 para considerar serie "fiable" (apostar)
+CONF_MIN = 0.025        # diferencia top1-top2 para considerar serie "fiable" (apostar)
 
 
 def level_of(name):
@@ -86,18 +88,23 @@ def load_classes():
 
 
 def split_series(entries):
-    """Divide la lista de salida en series de ~SERIE_TARGET por orden de salida."""
+    """Series oficiales de apuestas: bloques de SERIE_SIZE consecutivos por orden
+    de salida, anclados al FINAL de la lista (max MAX_SERIES series). Los primeros
+    de la lista que sobran quedan fuera de las apuestas.
+
+    Calibrado con el programa real (GP CSI2* 29/08: 57 inscritos -> 4 series
+    empezando en el dorsal 18). Devuelve (series, excluidos).
+    """
     n = len(entries)
     if n == 0:
-        return []
-    n_series = max(1, round(n / SERIE_TARGET))
-    base, extra = divmod(n, n_series)
-    series, i = [], 0
-    for k in range(n_series):
-        size = base + (1 if k < extra else 0)
-        series.append(entries[i:i + size])
-        i += size
-    return series
+        return [], []
+    k = min(MAX_SERIES, n // SERIE_SIZE)
+    if k == 0:
+        return [entries], []
+    start = n - k * SERIE_SIZE
+    series = [entries[start + i * SERIE_SIZE: start + (i + 1) * SERIE_SIZE]
+              for i in range(k)]
+    return series, entries[:start]
 
 
 def perf_of(rank, n):
@@ -155,14 +162,15 @@ def predict_class(model, cls):
         e["score"] = model.score(e, cls)
         scored.append(e)
     series = []
-    for serie in split_series(scored):
+    blocks, excluded = split_series(scored)
+    for serie in blocks:
         ranked = sorted(serie, key=lambda x: -x["score"])
         pairs = [frozenset([(a["rider_id"], a["horse_id"]), (b["rider_id"], b["horse_id"])])
                  for a, b in combinations(ranked[:GEMELAS_MARCADAS], 2)]
         conf = (ranked[0]["score"] - ranked[1]["score"]) if len(ranked) > 1 else 0.0
         series.append({"entries": serie, "ranked": ranked, "gemelas": pairs, "conf": conf})
     winner = max(scored, key=lambda x: x["score"]) if scored else None
-    return {"series": series, "winner": winner}
+    return {"series": series, "winner": winner, "excluded": excluded}
 
 
 def actual_serie_order(serie):
@@ -179,10 +187,14 @@ def backtest(classes):
     rows, day_last = [], {}
     finished = [c for c in classes if c["state"] == "results"]
     for c in finished:
-        day_last[c["date"]] = c["class_no"]  # ultimo trofeo (cronologico) de cada dia
+        if c["level"] in BET_LEVELS:
+            day_last[c["date"]] = c["class_no"]  # ultima prueba con apuestas del dia
 
     triple_days = {}
     for cls in finished:
+        if cls["level"] not in BET_LEVELS:
+            model.learn(cls)   # los CSIYH no tienen apuestas, pero si aportan historial
+            continue
         pred = predict_class(model, cls)
         n_series = len(pred["series"])
         win_hits = gem1_hits = gem3_hits = 0
@@ -240,7 +252,8 @@ def fmt_combo(e):
 
 
 def render(classes, rows, triples, model):
-    upcoming = [c for c in classes if c["state"] != "results" and c["entries"]]
+    upcoming = [c for c in classes if c["state"] != "results" and c["entries"]
+                and c["level"] in BET_LEVELS]
     day_last_up = {}
     for c in upcoming:
         day_last_up[c["date"]] = c["class_no"]
@@ -267,7 +280,9 @@ def render(classes, rows, triples, model):
              f"<title>Predicciones Hipico Gijon</title><style>{css}</style></head><body><div class='wrap'>")
     p.append("<h1>&#127943; Predicciones apuestas &mdash; Hipico de Gijon (Las Mestas)</h1>")
     p.append(f"<p class='muted'>Generado: {datetime.now():%Y-%m-%d %H:%M} &middot; "
-             f"Datos: online.equipe.com &middot; Series de ~{SERIE_TARGET} por orden de salida &middot; "
+             f"Datos: online.equipe.com &middot; Series oficiales: bloques de {SERIE_SIZE} "
+             f"por orden de salida (m&aacute;x. {MAX_SERIES} series, ancladas al final de la lista; "
+             "CSIYH1* sin apuestas) &middot; "
              f"Gemela: {GEMELA_COST:.0f}&euro; &middot; Combinada de {COMBINADA} caballos = "
              f"{COMBINADA*(COMBINADA-1)//2} gemelas = {COMBINADA*(COMBINADA-1)//2*GEMELA_COST:.0f}&euro; &middot; "
              f"Triple gemela (solo 3 &uacute;ltimas series de la &uacute;ltima prueba del d&iacute;a): "
@@ -288,6 +303,9 @@ def render(classes, rows, triples, model):
         if pred["winner"]:
             p.append(f"<p class='big'>&#127942; Ganador de la prueba: {fmt_combo(pred['winner'])} "
                      f"<span class='muted'>(score {pred['winner']['score']:.3f})</span></p>")
+        if pred["excluded"]:
+            p.append(f"<p class='muted'>Sin apuestas (primeros {len(pred['excluded'])} del orden de salida): "
+                     f"dorsales {esc(pred['excluded'][0]['start_no'])}&ndash;{esc(pred['excluded'][-1]['start_no'])}</p>")
         for i, s in enumerate(pred["series"], 1):
             r = s["ranked"]
             bet = s["conf"] >= CONF_MIN
@@ -355,11 +373,12 @@ def render(classes, rows, triples, model):
                      f"<th>{hg1}/{nh} ({100*hg1/nh:.0f}%)</th>"
                      f"<th>{hg3}/{nh} ({100*hg3/nh:.0f}%)</th><th>&mdash;</th></tr>")
     p.append("</table>")
-    p.append("<div class='triple'><b>&#128176; Estrategia de banca</b>: apostar solo en las series "
-             f"marcadas como FIABLES (diferencia de puntuaci&oacute;n top1&ndash;top2 &ge; {CONF_MIN}). "
-             "En el backtest, esas series suben a ~28% de acierto en ganador y ~38% en combinada de 3, "
-             "frente a ~17% / ~20% del azar. En series igualadas la ventaja desaparece: mejor no jugarlas "
-             "(salvo la triple gemela, que obliga a marcar las 3 series).</div>")
+    p.append("<div class='triple'><b>&#128176; Estrategia de banca</b>: con series de 10 caballos, "
+             "la fuerza del modelo est&aacute; en la <b>gemela</b>: acierto ~11% frente al ~2% del azar (x5), "
+             "y combinada de 3 ~19% frente al 6,7% del azar (x3). El ganador de serie a pelo es poco fiable "
+             "(1 entre 10). Recomendaci&oacute;n: jugar gemela/combinada en las series &#11088; FIABLES "
+             f"(confianza &ge; {CONF_MIN}) y evitar el resto, salvo la triple gemela que obliga a marcar "
+             "las 3 series. Backtest corto (27 series): tomar los porcentajes con cautela.</div>")
 
     p.append("<h3>Triple gemela (3 &uacute;ltimas series de la &uacute;ltima prueba de cada d&iacute;a, "
              f"{GEMELAS_MARCADAS} gemelas marcadas por serie)</h3><table>"
@@ -403,7 +422,9 @@ def render(classes, rows, triples, model):
              f"{W_HORSE:.0%} caballo (otros jinetes). Suavizado bayesiano hacia prior {PRIOR} "
              f"(k={K_SMOOTH}).</li>"
              f"<li>Confianza de serie = score(top1) &minus; score(top2); &ge; {CONF_MIN} = fiable.</li>"
-             f"<li>Series: divisi&oacute;n de la lista de salida en grupos de ~{SERIE_TARGET} por orden de salida "
+             f"<li>Series: bloques de {SERIE_SIZE} consecutivos por orden de salida, m&aacute;ximo "
+             f"{MAX_SERIES} series ancladas al final de la lista; los primeros sobrantes quedan fuera "
+             "de apuestas. CSIYH1* sin apuestas (solo aporta historial). "
              "(configurable en <code>predict.py</code>).</li>"
              "<li>Algoritmo completo documentado en <code>README.md</code>.</li>"
              "</ul>")
