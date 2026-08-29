@@ -4,12 +4,13 @@ Predictor de apuestas para el **Concurso Hípico Internacional de Gijón (Las Me
 
 ## Modalidades cubiertas
 
-| Apuesta | Qué es |
-|---|---|
-| **Ganador de serie** | El mejor binomio de cada serie (~6 caballos por orden de salida) |
-| **Gemela** | Los 2 mejores de la serie, sin importar el orden |
-| **Ganador de la prueba** | El mejor de toda la prueba |
-| **Triple gemela** | Acertar la gemela de las 3 últimas series del último trofeo del día. Se pueden marcar varias gemelas por serie: 3×3×3 = 27 combinaciones × 0,30 € = 8,10 € |
+| Apuesta | Qué es | Coste |
+|---|---|---|
+| **Ganador de serie** | El mejor binomio de cada serie (~6 caballos por orden de salida) | — |
+| **Gemela** | Los 2 mejores de la serie, sin importar el orden (1 pareja) | 2 € |
+| **Combinada de 3** | 3 caballos combinados entre sí = 3 gemelas | 6 € |
+| **Ganador de la prueba** | El mejor de toda la prueba | — |
+| **Triple gemela** | Solo en las **3 últimas series de la última prueba del día**: acertar la gemela de las 3. Puedes marcar varias gemelas por serie y el coste se multiplica: 3×3×3 = 27 combinaciones × 0,30 € = 8,10 € | 0,30 €/comb. |
 
 ## Uso
 
@@ -34,7 +35,7 @@ Puntuación por binomio = historial ponderado dentro del concurso:
 - Sin historial → prior 0,5 (neutro).
 
 Parámetros ajustados por búsqueda en rejilla sobre el backtest (miércoles→viernes):
-ganador de serie **24 %** (azar ≈ 17 %), gemela con 3 marcas **31 %** (azar ≈ 20 %).
+ganador de serie **24 %** (azar ≈ 17 %), combinada de 3 **31 %** (azar ≈ 20 %).
 
 ### Mejoras futuras
 - Prior con ranking FEI/Longines para el primer día (sin historial local).

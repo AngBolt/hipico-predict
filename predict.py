@@ -2,11 +2,14 @@
 
 Modalidades:
 - Ganador de serie: mejor binomio de cada serie (~6 caballos por orden de salida).
-- Gemela: los 2 mejores de la serie, sin importar orden.
+- Gemela: los 2 mejores de la serie, sin importar orden. Una gemela (1 pareja)
+  cuesta 2 EUR. Una "combinada de 3" (3 caballos combinados entre si = 3 parejas)
+  cuesta 6 EUR.
 - Ganador de la prueba: mejor de toda la prueba.
-- Triple gemela: acertar la gemela de las 3 ultimas series del ultimo trofeo
-  del dia. Se pueden marcar varias gemelas por serie; el coste se multiplica
-  (p.ej. 3 x 3 x 3 combinaciones x 0.30 EUR = 8.10 EUR).
+- Triple gemela: SOLO en las 3 ultimas series de la ultima prueba del dia.
+  Consiste en acertar la gemela de esas 3 series. Se pueden marcar varias
+  gemelas por serie y el coste del boleto se multiplica
+  (p.ej. 3 x 3 x 3 = 27 combinaciones x 0.30 EUR = 8.10 EUR).
 
 Uso: python predict.py   -> genera index.html con predicciones y backtest.
 """
@@ -21,7 +24,9 @@ DATA = Path(__file__).parent / "data"
 OUT = Path(__file__).parent / "index.html"
 
 SERIE_TARGET = 6        # tamano objetivo de cada serie
-TICKET_UNIT = 0.30      # coste por combinacion de triple gemela
+GEMELA_COST = 2.0       # coste de una gemela (1 pareja)
+COMBINADA = 3           # caballos en la combinada de gemela -> C(3,2)=3 parejas = 6 EUR
+TRIPLE_UNIT = 0.30      # coste por combinacion del boleto de triple gemela
 GEMELAS_MARCADAS = 3    # gemelas marcadas por serie en la triple gemela
 DECAY = 0.7             # peso por dia de antiguedad
 LEVEL_BONUS = 1.0       # peso extra si el historial es del mismo nivel (CSI4*, etc.)
@@ -216,7 +221,7 @@ def backtest(classes):
         }
         rows.append(row)
         if day_last.get(cls["date"]) == cls["class_no"]:
-            cost = (GEMELAS_MARCADAS ** 3) * TICKET_UNIT
+            cost = (GEMELAS_MARCADAS ** 3) * TRIPLE_UNIT
             triple_days[cls["date"]] = {"hit": gem3_all, "cost": cost, "class_no": cls["class_no"]}
         model.learn(cls)
     return rows, triple_days, model
@@ -259,9 +264,12 @@ def render(classes, rows, triples, model):
     p.append("<h1>&#127943; Predicciones apuestas &mdash; Hipico de Gijon (Las Mestas)</h1>")
     p.append(f"<p class='muted'>Generado: {datetime.now():%Y-%m-%d %H:%M} &middot; "
              f"Datos: online.equipe.com &middot; Series de ~{SERIE_TARGET} por orden de salida &middot; "
-             f"Triple gemela: {GEMELAS_MARCADAS}x{GEMELAS_MARCADAS}x{GEMELAS_MARCADAS} = "
-             f"{GEMELAS_MARCADAS**3} combinaciones x {TICKET_UNIT:.2f}&euro; = "
-             f"{GEMELAS_MARCADAS**3*TICKET_UNIT:.2f}&euro;</p>")
+             f"Gemela: {GEMELA_COST:.0f}&euro; &middot; Combinada de {COMBINADA} caballos = "
+             f"{COMBINADA*(COMBINADA-1)//2} gemelas = {COMBINADA*(COMBINADA-1)//2*GEMELA_COST:.0f}&euro; &middot; "
+             f"Triple gemela (solo 3 &uacute;ltimas series de la &uacute;ltima prueba del d&iacute;a): "
+             f"{GEMELAS_MARCADAS}x{GEMELAS_MARCADAS}x{GEMELAS_MARCADAS} = "
+             f"{GEMELAS_MARCADAS**3} combinaciones x {TRIPLE_UNIT:.2f}&euro; = "
+             f"{GEMELAS_MARCADAS**3*TRIPLE_UNIT:.2f}&euro;</p>")
 
     # ---- Predicciones proximas pruebas ----
     p.append("<h2>Predicciones &mdash; pr&oacute;ximas pruebas</h2>")
@@ -269,6 +277,9 @@ def render(classes, rows, triples, model):
         p.append("<p>No hay listas de salida publicadas. Ejecuta <code>python fetch_data.py</code> y regenera.</p>")
     for cls in upcoming:
         pred = predict_class(model, cls)
+        is_last_of_day = day_last_up.get(cls["date"]) == cls["class_no"]
+        n_s = len(pred["series"])
+        triple_series = set(range(n_s - 2, n_s + 1)) if (is_last_of_day and n_s >= 3) else set()
         p.append(f"<h3>Prueba {esc(cls['class_no'])} &middot; {esc(cls['date'])} &middot; {esc(cls['name'])}</h3>")
         if pred["winner"]:
             p.append(f"<p class='big'>&#127942; Ganador de la prueba: {fmt_combo(pred['winner'])} "
@@ -280,17 +291,24 @@ def render(classes, rows, triples, model):
                      f"dorsales {esc(s['entries'][0]['start_no'])}&ndash;{esc(s['entries'][-1]['start_no'])})</span><br>")
             p.append(f"&#129351; Ganador serie: <b>{fmt_combo(r[0])}</b> <span class='muted'>({r[0]['score']:.3f})</span><br>")
             if len(r) > 1:
-                p.append(f"&#128111; Gemela: <b>{fmt_combo(r[0])}</b> + <b>{fmt_combo(r[1])}</b><br>")
-            marks = r[:GEMELAS_MARCADAS]
-            p.append("Marcar (triple gemela): " +
-                     " ".join(f"<span class='pill'>{fmt_combo(e)}</span>" for e in marks))
+                p.append(f"&#128111; Gemela ({GEMELA_COST:.0f}&euro;): <b>{fmt_combo(r[0])}</b> + <b>{fmt_combo(r[1])}</b><br>")
+            if len(r) >= COMBINADA:
+                marks = r[:COMBINADA]
+                n_pairs = COMBINADA * (COMBINADA - 1) // 2
+                p.append(f"&#127922; Combinada de {COMBINADA} ({n_pairs} gemelas, "
+                         f"{n_pairs*GEMELA_COST:.0f}&euro;): " +
+                         " ".join(f"<span class='pill'>{fmt_combo(e)}</span>" for e in marks))
+            if i in triple_series:
+                p.append("<br><span class='muted'>&#127919; Esta serie entra en la TRIPLE GEMELA: "
+                         "marcar esos mismos 3 caballos como gemelas.</span>")
             p.append("</div>")
-        if day_last_up.get(cls["date"]) == cls["class_no"] and len(pred["series"]) >= 3:
+        if triple_series:
             p.append("<div class='triple'><b>&#127919; TRIPLE GEMELA del d&iacute;a "
-                     f"{esc(cls['date'])}</b> (3 &uacute;ltimas series de esta prueba): "
-                     f"marcar las {GEMELAS_MARCADAS} combinaciones indicadas en las series "
-                     f"{len(pred['series'])-2}, {len(pred['series'])-1} y {len(pred['series'])}. "
-                     f"Coste boleto: <b>{GEMELAS_MARCADAS**3*TICKET_UNIT:.2f}&euro;</b></div>")
+                     f"{esc(cls['date'])}</b> &mdash; solo en las 3 &uacute;ltimas series de esta prueba "
+                     f"(series {n_s-2}, {n_s-1} y {n_s}). Marcando {GEMELAS_MARCADAS} gemelas por serie: "
+                     f"{GEMELAS_MARCADAS}x{GEMELAS_MARCADAS}x{GEMELAS_MARCADAS} = {GEMELAS_MARCADAS**3} "
+                     f"combinaciones x {TRIPLE_UNIT:.2f}&euro; = boleto de "
+                     f"<b>{GEMELAS_MARCADAS**3*TRIPLE_UNIT:.2f}&euro;</b></div>")
 
     # ---- Backtest ----
     p.append("<h2>Backtest &mdash; resultados reales vs predicci&oacute;n</h2>")
@@ -299,8 +317,9 @@ def render(classes, rows, triples, model):
              "(el modelo apenas puede acertar; sirven de l&iacute;nea base).</p>")
     tw = sum(r["n_series"] for r in rows)
     p.append("<table><tr><th>Prueba</th><th>Fecha</th><th>Series</th>"
-             "<th>Ganador serie</th><th>Gemela (1 marca)</th>"
-             f"<th>Gemela ({GEMELAS_MARCADAS} marcas)</th><th>Ganador prueba</th></tr>")
+             f"<th>Ganador serie</th><th>Gemela simple ({GEMELA_COST:.0f}&euro;)</th>"
+             f"<th>Combinada de {COMBINADA} ({COMBINADA*(COMBINADA-1)//2*GEMELA_COST:.0f}&euro;)</th>"
+             "<th>Ganador prueba</th></tr>")
     tot_w = tot_g1 = tot_g3 = tot_cw = 0
     for r in rows:
         c = r["cls"]
@@ -318,7 +337,8 @@ def render(classes, rows, triples, model):
                  f"<th>{tot_cw}/{len(rows)}</th></tr>")
     p.append("</table>")
 
-    p.append("<h3>Triple gemela (&uacute;ltimo trofeo de cada d&iacute;a)</h3><table>"
+    p.append("<h3>Triple gemela (3 &uacute;ltimas series de la &uacute;ltima prueba de cada d&iacute;a, "
+             f"{GEMELAS_MARCADAS} gemelas marcadas por serie)</h3><table>"
              "<tr><th>D&iacute;a</th><th>Prueba</th><th>Coste boleto</th><th>Acertada</th></tr>")
     for d, t in sorted(triples.items()):
         ok = "<span class='ok'>SI &#127881;</span>" if t["hit"] else "<span class='ko'>no</span>"
@@ -337,7 +357,7 @@ def render(classes, rows, triples, model):
         p.append(f"<p>Ganador prueba &mdash; predicho: <b>{pw}</b> &middot; real: "
                  f"<b class='{mark}'>{rw}</b></p>")
         p.append("<table><tr><th>Serie</th><th>Predicho</th><th>Ganador real</th>"
-                 "<th>Ganador</th><th>Gemela 1</th><th>Gemela 3</th></tr>")
+                 "<th>Ganador</th><th>Gemela simple</th><th>Combinada de 3</th></tr>")
         for s in r["series"]:
             f1 = "<span class='ok'>&#10004;</span>" if s["hit_w"] else "<span class='ko'>&#10008;</span>"
             f2 = "<span class='ok'>&#10004;</span>" if s["hit_g1"] else "<span class='ko'>&#10008;</span>"
