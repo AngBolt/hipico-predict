@@ -182,9 +182,24 @@ def key_of(e):
     return (e["rider_id"], e["horse_id"])
 
 
+def day_serie_offsets(classes):
+    """Numeracion oficial: las series se numeran de forma continua durante el dia
+    (p.ej. prueba de las 14:00 = series 1-4, prueba de las 18:30 = series 5-7).
+    Devuelve {(date, class_no): offset}."""
+    offsets, counters = {}, {}
+    for c in classes:
+        if c["level"] not in BET_LEVELS or not c["entries"]:
+            continue
+        offsets[(c["date"], c["class_no"])] = counters.get(c["date"], 0)
+        blocks, _ = split_series(c["entries"])
+        counters[c["date"]] = counters.get(c["date"], 0) + len(blocks)
+    return offsets
+
+
 def backtest(classes):
     model = Model()
     rows, day_last = [], {}
+    offsets = day_serie_offsets(classes)
     finished = [c for c in classes if c["state"] == "results"]
     for c in finished:
         if c["level"] in BET_LEVELS:
@@ -195,6 +210,7 @@ def backtest(classes):
         if cls["level"] not in BET_LEVELS:
             model.learn(cls)   # los CSIYH no tienen apuestas, pero si aportan historial
             continue
+        off = offsets.get((cls["date"], cls["class_no"]), 0)
         pred = predict_class(model, cls)
         n_series = len(pred["series"])
         win_hits = gem1_hits = gem3_hits = 0
@@ -216,7 +232,7 @@ def backtest(classes):
             gem1_hits += hit_g1
             gem3_hits += hit_g3
             serie_detail.append({
-                "num": idx + 1, "pick": pick, "real": real_win,
+                "num": off + idx + 1, "pick": pick, "real": real_win,
                 "marks": s["ranked"][:COMBINADA], "conf": s["conf"],
                 "hit_w": hit_w, "hit_g1": hit_g1, "hit_g3": hit_g3,
             })
@@ -254,6 +270,7 @@ def fmt_combo(e):
 def render(classes, rows, triples, model):
     upcoming = [c for c in classes if c["state"] != "results" and c["entries"]
                 and c["level"] in BET_LEVELS]
+    offsets = day_serie_offsets(classes)
     day_last_up = {}
     for c in upcoming:
         day_last_up[c["date"]] = c["class_no"]
@@ -296,9 +313,10 @@ def render(classes, rows, triples, model):
         p.append("<p>No hay listas de salida publicadas. Ejecuta <code>python fetch_data.py</code> y regenera.</p>")
     for cls in upcoming:
         pred = predict_class(model, cls)
+        off = offsets.get((cls["date"], cls["class_no"]), 0)
         is_last_of_day = day_last_up.get(cls["date"]) == cls["class_no"]
         n_s = len(pred["series"])
-        triple_series = set(range(n_s - 2, n_s + 1)) if (is_last_of_day and n_s >= 3) else set()
+        triple_series = set(range(off + n_s - 2, off + n_s + 1)) if (is_last_of_day and n_s >= 3) else set()
         p.append(f"<h3>Prueba {esc(cls['class_no'])} &middot; {esc(cls['date'])} &middot; {esc(cls['name'])}</h3>")
         if pred["winner"]:
             p.append(f"<p class='big'>&#127942; Ganador de la prueba: {fmt_combo(pred['winner'])} "
@@ -306,7 +324,7 @@ def render(classes, rows, triples, model):
         if pred["excluded"]:
             p.append(f"<p class='muted'>Sin apuestas (primeros {len(pred['excluded'])} del orden de salida): "
                      f"dorsales {esc(pred['excluded'][0]['start_no'])}&ndash;{esc(pred['excluded'][-1]['start_no'])}</p>")
-        for i, s in enumerate(pred["series"], 1):
+        for i, s in enumerate(pred["series"], off + 1):
             r = s["ranked"]
             bet = s["conf"] >= CONF_MIN
             badge = ("<span class='ok'>&#11088; FIABLE &mdash; apostar</span>" if bet
@@ -329,9 +347,11 @@ def render(classes, rows, triples, model):
                          "marcar esos mismos 3 caballos como gemelas.</span>")
             p.append("</div>")
         if triple_series:
+            ts = sorted(triple_series)
             p.append("<div class='triple'><b>&#127919; TRIPLE GEMELA del d&iacute;a "
                      f"{esc(cls['date'])}</b> &mdash; solo en las 3 &uacute;ltimas series de esta prueba "
-                     f"(series {n_s-2}, {n_s-1} y {n_s}). Marcando {GEMELAS_MARCADAS} gemelas por serie: "
+                     f"(series {ts[0]}, {ts[1]} y {ts[2]}, numeraci&oacute;n continua del d&iacute;a). "
+                     f"Marcando {GEMELAS_MARCADAS} gemelas por serie: "
                      f"{GEMELAS_MARCADAS}x{GEMELAS_MARCADAS}x{GEMELAS_MARCADAS} = {GEMELAS_MARCADAS**3} "
                      f"combinaciones x {TRIPLE_UNIT:.2f}&euro; = boleto de "
                      f"<b>{GEMELAS_MARCADAS**3*TRIPLE_UNIT:.2f}&euro;</b></div>")

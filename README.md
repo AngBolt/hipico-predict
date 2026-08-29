@@ -34,6 +34,7 @@ Abre **[index.html](index.html)**: predicciones de las próximas pruebas, backte
 - Solo hay apuestas en pruebas **CSI4\*** y **CSI2\*** (los CSIYH1\* de caballos jóvenes no, aunque sí aportan historial al modelo).
 - Series = bloques de **10 consecutivos por orden de salida**, máximo **4 series por prueba**, **ancladas al final de la lista**: si sobran caballos, los primeros del orden de salida quedan fuera de las apuestas.
 - Verificado con el GP CSI2* del 29/08: 57 inscritos → 4 series de 10 empezando en el dorsal 18 (Teresa Arias Cueva).
+- **Numeración continua por día**: las series se numeran seguidas a lo largo del día (GP 14:00 = series 1–4, prueba 18:30 = series 5–7), igual que en Equipe/programa oficial.
 - Configurable en `predict.py`: `SERIE_SIZE`, `MAX_SERIES`, `BET_LEVELS`.
 
 ### 2. Rendimiento por participación
